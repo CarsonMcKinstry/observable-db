@@ -1,26 +1,15 @@
-import { fromEvent, merge, of, Observable } from "rxjs";
+import { fromEvent, merge, of, Observable, concat } from "rxjs";
 import {
   filter,
   tap,
   map,
   ignoreElements,
   mergeMap,
-  combineAll
+  combineAll,
+  share,
+  concatMap,
+  withLatestFrom
 } from "rxjs/operators";
-
-function transaction(storeNames, mode) {
-  return function(dbEvent$) {
-    const transaction$ = dbEvent$.pipe(
-      map(db => db.transaction(storeNames, mode))
-    );
-
-    const transactionComplete$ = transaction$.pipe(
-      mergeMap(transaction => fromEvent(transaction, "complete"))
-    );
-
-    return merge(transaction$, transactionComplete$);
-  };
-}
 
 function transactionComplete(cb) {
   return function(stream$) {
@@ -42,6 +31,33 @@ function transactionComplete(cb) {
       )
     );
   };
+}
+
+function transaction(storeNames, mode, cb) {
+  return function(dbEvent$) {
+    const transaction$ = dbEvent$.pipe(
+      map(db => db.transaction(storeNames, mode, cb))
+    );
+
+    const transactionComplete$ = transaction$.pipe(
+      mergeMap(transaction => fromEvent(transaction, "complete"))
+    );
+
+    const tx$ = cb(transaction$);
+
+    return merge(tx$, transactionComplete$);
+  };
+  // return function(dbEvent$) {
+  //   const transaction$ = dbEvent$.pipe(
+  //     map(db => db.transaction(storeNames, mode)),
+  //   );
+
+  //   const transactionComplete$ = transaction$.pipe(
+  //     mergeMap(transaction => fromEvent(transaction, "complete"))
+  //   );
+
+  //   return merge(transaction$, transactionComplete$).pipe(share());
+  // };
 }
 
 function upgrade(upgradeFunction) {
@@ -128,49 +144,66 @@ const db$ = openDB("todoList", 8).pipe(
 
 function objectStore(name) {
   return function(transaction$) {
-    console.log(transaction$);
-    return transaction$;
-    // const objectStore$ = transaction$.pipe(
-    //   filter(event => event.type !== "complete"),
-    //   map(i => {
-    //     if (i instanceof IDBTransaction) {
-    //       return i.objectStore(name);
-    //     }
+    const objectStore$ = transaction$.pipe(
+      filter(event => event.type !== "complete"),
+      map(i => {
+        if (i instanceof IDBTransaction) {
+          return i.objectStore(name);
+        }
 
-    //     return i.target.transaction.objectStore(name);
-    //   })
-    // );
-    // return objectStore$;
+        if (i instanceof IDBDatabase) {
+          return i.transaction(name, 'readwrite').objectStore(name);
+        }
+
+        return i.target.transaction.objectStore(name);
+      })
+    );
+    return objectStore$;
   };
 }
 
-// function index(name) {
-//   return function (objectStore$) {
-//     const index$ = objectStore$.pipe(
-//       map(objectStore => objectStore.index(name))
-//     );
-//     return index$;
-//   };
-// }
+function index(name) {
+  return function(objectStore$) {
+    const index$ = objectStore$.pipe(
+      map(objectStore => objectStore.index(name))
+    );
+    return index$;
+  };
+}
 
-// function getAll() {
-//   return function (objectStore$) {
-//     const entries$ = objectStore$.pipe(
-//       map(os => os.getAll()),
-//       mergeMap(request => fromEvent(request, "success"))
-//       // map(event => event.target.result)
-//     );
+function add(data) {
+  return function(objectStore$) {
+    const entry$ = objectStore$.pipe(
+      map(os => os.add(data)),
+      mergeMap(request => fromEvent(request, 'success')),
+      map(event => event.target.result),
+    );
 
-//     return entries$;
-//   };
-// }
+    return entry$;
+  }
+}
 
-const testTransaction = db$
-  .pipe(
-    transaction(["users", "todos"], "readwrite"),
-    transactionComplete(() => {
-      console.log("transaction complete");
-    }),
-    objectStore("users")
-  )
-  .subscribe(console.log);
+function getAll() {
+  return function(objectStore$) {
+    const entries$ = objectStore$.pipe(
+      map(os => os.getAll()),
+      mergeMap(request => fromEvent(request, "success")),
+      map(event => event.target.result)
+    );
+
+    return entries$;
+  };
+}
+
+const getUsers$ = db$.pipe(
+  objectStore('users'),
+  getAll()
+);
+
+const getTodos$ = db$.pipe(
+  objectStore('todos'),
+  getAll()
+);
+
+merge(getUsers$, getTodos$).subscribe(console.log);
+

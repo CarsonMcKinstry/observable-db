@@ -1,5 +1,12 @@
 import { fromEvent, merge, of, Observable } from "rxjs";
-import { filter, tap, map, ignoreElements, mergeMap } from "rxjs/operators";
+import {
+  filter,
+  tap,
+  map,
+  ignoreElements,
+  mergeMap,
+  combineAll
+} from "rxjs/operators";
 
 function transaction(storeNames, mode) {
   return function(dbEvent$) {
@@ -7,7 +14,33 @@ function transaction(storeNames, mode) {
       map(db => db.transaction(storeNames, mode))
     );
 
-    return transaction$;
+    const transactionComplete$ = transaction$.pipe(
+      mergeMap(transaction => fromEvent(transaction, "complete"))
+    );
+
+    return merge(transaction$, transactionComplete$);
+  };
+}
+
+function transactionComplete(cb) {
+  return function(stream$) {
+    const transactionCompleteEvent$ = stream$.pipe(
+      filter(
+        ({ type, target }) =>
+          type === "complete" && target instanceof IDBTransaction
+      ),
+      tap(event => {
+        cb && typeof cb === "function" && cb(event);
+      })
+      // ignoreElements()
+    );
+
+    return merge(stream$, transactionCompleteEvent$).pipe(
+      filter(
+        ({ type, target }) =>
+          type !== "complete" && !(target instanceof IDBTransaction)
+      )
+    );
   };
 }
 
@@ -37,36 +70,6 @@ function upgrade(upgradeFunction) {
     return merge(upgraded$.pipe(ignoreElements()), upgradeDB$).pipe(
       filter(({ type }) => type !== "upgradeneeded")
     );
-  };
-}
-
-function objectStore(name) {
-  return function(transaction$) {
-    const objectStore$ = transaction$.pipe(
-      map(transaction => transaction.objectStore(name))
-    );
-    return objectStore$;
-  };
-}
-
-function index(name) {
-  return function(objectStore$) {
-    const index$ = objectStore$.pipe(
-      map(objectStore => objectStore.index(name))
-    );
-    return index$;
-  };
-}
-
-function getAll() {
-  return function(objectStore$) {
-    const entries$ = objectStore$.pipe(
-      map(os => os.getAll()),
-      mergeMap(request => fromEvent(request, "success")),
-      map(event => event.target.result)
-    );
-
-    return entries$;
   };
 }
 
@@ -121,22 +124,53 @@ const db$ = openDB("todoList", 8).pipe(
 
     return merge(todosOS$, usersOS$);
   })
-  // transaction("users", "readwrite"),
-  // objectStore("users"),
-  // tap(os => {
-  //   os.add({ name: "carson", id: new Date() / 1000 });
-  // })
-);
-// .subscribe();
-
-const createUser = db$.pipe(
-  transaction("users", "readwrite"),
-  objectStore("users"),
-  index("name"),
-  getAll()
-  // tap(os => {
-  //   os.add({ name: "carson", id: Math.floor(new Date() / 1000) });
-  // })
 );
 
-createUser.subscribe(console.log);
+function objectStore(name) {
+  return function(transaction$) {
+    console.log(transaction$);
+    return transaction$;
+    // const objectStore$ = transaction$.pipe(
+    //   filter(event => event.type !== "complete"),
+    //   map(i => {
+    //     if (i instanceof IDBTransaction) {
+    //       return i.objectStore(name);
+    //     }
+
+    //     return i.target.transaction.objectStore(name);
+    //   })
+    // );
+    // return objectStore$;
+  };
+}
+
+// function index(name) {
+//   return function (objectStore$) {
+//     const index$ = objectStore$.pipe(
+//       map(objectStore => objectStore.index(name))
+//     );
+//     return index$;
+//   };
+// }
+
+// function getAll() {
+//   return function (objectStore$) {
+//     const entries$ = objectStore$.pipe(
+//       map(os => os.getAll()),
+//       mergeMap(request => fromEvent(request, "success"))
+//       // map(event => event.target.result)
+//     );
+
+//     return entries$;
+//   };
+// }
+
+const testTransaction = db$
+  .pipe(
+    transaction(["users", "todos"], "readwrite"),
+    transactionComplete(() => {
+      console.log("transaction complete");
+    }),
+    objectStore("users")
+  )
+  .subscribe(console.log);

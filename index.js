@@ -14,40 +14,54 @@ import {
 
 function transaction(storeNames, mode) {
   return function(dbEvent$) {
-    const transaction$ = dbEvent$.pipe(
-      map(db => db.transaction(storeNames, mode))
-    );
+    const tx$ = Observable.create(observer => {
+      dbEvent$.subscribe(db => {
+        const tx = db.transaction(storeNames, mode);
 
-    const transactionComplete$ = transaction$.pipe(
-      mergeMap(transaction => fromEvent(transaction, "complete")),
-      share()
-    );
+        observer.next(tx);
 
-    return merge(transaction$, transactionComplete$);
+        tx.addEventListener("complete", e => {
+          observer.next(e);
+          observer.complete();
+        });
+      });
+    });
+
+    return tx$;
+    //   const transaction$ = dbEvent$.pipe(
+    //     map(db => db.transaction(storeNames, mode))
+    //   );
+
+    //   const transactionComplete$ = transaction$.pipe(
+    //     mergeMap(transaction => fromEvent(transaction, "complete")),
+    //     share()
+    //   );
+
+    //   return merge(transaction$, transactionComplete$);
   };
 }
 
-function transactionComplete(cb) {
-  return function(stream$) {
-    const transactionCompleteEvent$ = stream$.pipe(
-      filter(
-        ({ type, target }) =>
-          type === "complete" && target instanceof IDBTransaction
-      ),
-      tap(event => {
-        cb && typeof cb === "function" && cb(event);
-      })
-    );
+// function transactionComplete(cb) {
+//   return function(stream$) {
+//     const transactionCompleteEvent$ = stream$.pipe(
+//       filter(
+//         ({ type, target }) =>
+//           type === "complete" && target instanceof IDBTransaction
+//       ),
+//       tap(event => {
+//         cb && typeof cb === "function" && cb(event);
+//       })
+//     );
 
-    return merge(stream$, transactionCompleteEvent$).pipe(
-      filter(
-        ({ type, target }) =>
-          type !== "complete" && !(target instanceof IDBTransaction)
-      ),
-      share()
-    );
-  };
-}
+//     return merge(stream$, transactionCompleteEvent$).pipe(
+//       filter(
+//         ({ type, target }) =>
+//           type !== "complete" && !(target instanceof IDBTransaction)
+//       ),
+//       share()
+//     );
+//   };
+// }
 
 function upgrade(upgradeFunction) {
   // => needs to return an observable!
@@ -181,7 +195,7 @@ function get(key) {
   };
 }
 
-// example starts here
+// // example starts here
 
 const db$ = openDB("todoList", 8).pipe(
   upgrade(db$ => {
@@ -201,11 +215,14 @@ const db$ = openDB("todoList", 8).pipe(
 
 // open a transaction
 const tx$ = db$.pipe(
-  transaction(["users", "todos"], "readwrite"),
-  transactionComplete(() => {
-    console.log("tx complete");
-  })
+  transaction(["users", "todos"], "readwrite")
+  // tap(console.log)
+  // transactionComplete(() => {
+  //   console.log("tx complete");
+  // })
 );
+
+// tx$.subscribe();
 
 // open an object store
 const usersObjectStore$ = tx$.pipe(objectStore("users"));
@@ -225,8 +242,8 @@ const addUser$ = usersObjectStore$
   )
   .subscribe(console.log);
 
-// we'll get all of our users here
-const getUsers$ = usersObjectStore$.pipe(getAll());
+// // we'll get all of our users here
+// const getUsers$ = usersObjectStore$.pipe(getAll());
 
-// subscribe to the thing
-// merge(getUsers$, addUser$, getUsers$).subscribe(console.log);
+// // subscribe to the thing
+// // merge(getUsers$, addUser$, getUsers$).subscribe(console.log);

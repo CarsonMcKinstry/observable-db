@@ -1,4 +1,4 @@
-import { fromEvent, merge, of, Observable, concat } from "rxjs";
+import { fromEvent, merge, Observable } from "rxjs";
 import {
   filter,
   tap,
@@ -6,10 +6,23 @@ import {
   ignoreElements,
   mergeMap,
   combineAll,
-  share,
-  concatMap,
-  withLatestFrom
+  shareReplay
 } from "rxjs/operators";
+
+function transaction(storeNames, mode) {
+  return function(dbEvent$) {
+    const transaction$ = dbEvent$.pipe(
+      map(db => db.transaction(storeNames, mode)),
+    );
+
+    const transactionComplete$ = transaction$.pipe(
+      mergeMap(transaction => fromEvent(transaction, "complete")),
+      shareReplay()
+    );
+
+    return merge(transaction$, transactionComplete$)
+  };
+}
 
 function transactionComplete(cb) {
   return function(stream$) {
@@ -20,8 +33,8 @@ function transactionComplete(cb) {
       ),
       tap(event => {
         cb && typeof cb === "function" && cb(event);
-      })
-      // ignoreElements()
+      }),
+      shareReplay()
     );
 
     return merge(stream$, transactionCompleteEvent$).pipe(
@@ -31,33 +44,6 @@ function transactionComplete(cb) {
       )
     );
   };
-}
-
-function transaction(storeNames, mode, cb) {
-  return function(dbEvent$) {
-    const transaction$ = dbEvent$.pipe(
-      map(db => db.transaction(storeNames, mode, cb))
-    );
-
-    const transactionComplete$ = transaction$.pipe(
-      mergeMap(transaction => fromEvent(transaction, "complete"))
-    );
-
-    const tx$ = cb(transaction$);
-
-    return merge(tx$, transactionComplete$);
-  };
-  // return function(dbEvent$) {
-  //   const transaction$ = dbEvent$.pipe(
-  //     map(db => db.transaction(storeNames, mode)),
-  //   );
-
-  //   const transactionComplete$ = transaction$.pipe(
-  //     mergeMap(transaction => fromEvent(transaction, "complete"))
-  //   );
-
-  //   return merge(transaction$, transactionComplete$).pipe(share());
-  // };
 }
 
 function upgrade(upgradeFunction) {
@@ -84,7 +70,8 @@ function upgrade(upgradeFunction) {
     }
 
     return merge(upgraded$.pipe(ignoreElements()), upgradeDB$).pipe(
-      filter(({ type }) => type !== "upgradeneeded")
+      filter(({ type }) => type !== "upgradeneeded"),
+      shareReplay()
     );
   };
 }
@@ -95,7 +82,8 @@ function createObjectStore(name, config = {}) {
       map(({ db }) => {
         const objectStore = db.createObjectStore(name, config);
         return objectStore;
-      })
+      }),
+      shareReplay()
     );
     return objectStoreCreation$;
   };
@@ -195,12 +183,19 @@ function getAll() {
   };
 }
 
-const getUsers$ = db$.pipe(
+const tx$ = db$.pipe(
+  transaction(['users', 'todos']),
+  transactionComplete(() => {
+    console.log('tx complete');
+  })
+)
+
+const getUsers$ = tx$.pipe(
   objectStore('users'),
   getAll()
 );
 
-const getTodos$ = db$.pipe(
+const getTodos$ = tx$.pipe(
   objectStore('todos'),
   getAll()
 );

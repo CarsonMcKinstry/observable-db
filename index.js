@@ -1,4 +1,4 @@
-import { fromEvent, merge, Observable } from "rxjs";
+import { fromEvent, merge, Observable, of, from, concat } from "rxjs";
 import {
   filter,
   tap,
@@ -6,21 +6,24 @@ import {
   ignoreElements,
   mergeMap,
   combineAll,
-  shareReplay
+  share,
+  switchMap,
+  concatMap,
+  withLatestFrom
 } from "rxjs/operators";
 
 function transaction(storeNames, mode) {
   return function(dbEvent$) {
     const transaction$ = dbEvent$.pipe(
-      map(db => db.transaction(storeNames, mode)),
+      map(db => db.transaction(storeNames, mode))
     );
 
     const transactionComplete$ = transaction$.pipe(
       mergeMap(transaction => fromEvent(transaction, "complete")),
-      shareReplay()
+      share()
     );
 
-    return merge(transaction$, transactionComplete$)
+    return merge(transaction$, transactionComplete$);
   };
 }
 
@@ -33,15 +36,15 @@ function transactionComplete(cb) {
       ),
       tap(event => {
         cb && typeof cb === "function" && cb(event);
-      }),
-      shareReplay()
+      })
     );
 
     return merge(stream$, transactionCompleteEvent$).pipe(
       filter(
         ({ type, target }) =>
           type !== "complete" && !(target instanceof IDBTransaction)
-      )
+      ),
+      share()
     );
   };
 }
@@ -71,7 +74,7 @@ function upgrade(upgradeFunction) {
 
     return merge(upgraded$.pipe(ignoreElements()), upgradeDB$).pipe(
       filter(({ type }) => type !== "upgradeneeded"),
-      shareReplay()
+      share()
     );
   };
 }
@@ -83,7 +86,7 @@ function createObjectStore(name, config = {}) {
         const objectStore = db.createObjectStore(name, config);
         return objectStore;
       }),
-      shareReplay()
+      share()
     );
     return objectStoreCreation$;
   };
@@ -114,22 +117,6 @@ function openDB(name, version) {
   return merge(success$, error$, upgrade$, blocked$, blocking$);
 }
 
-const db$ = openDB("todoList", 8).pipe(
-  upgrade(db$ => {
-    const todosOS$ = db$.pipe(
-      createObjectStore("todos", { keyPath: "id" }),
-      createIndex("task", "task")
-    );
-
-    const usersOS$ = db$.pipe(
-      createObjectStore("users", { keyPath: "id" }),
-      createIndex("name", "name")
-    );
-
-    return merge(todosOS$, usersOS$);
-  })
-);
-
 function objectStore(name) {
   return function(transaction$) {
     const objectStore$ = transaction$.pipe(
@@ -140,7 +127,7 @@ function objectStore(name) {
         }
 
         if (i instanceof IDBDatabase) {
-          return i.transaction(name, 'readwrite').objectStore(name);
+          return i.transaction(name, "readwrite").objectStore(name);
         }
 
         return i.target.transaction.objectStore(name);
@@ -163,12 +150,12 @@ function add(data) {
   return function(objectStore$) {
     const entry$ = objectStore$.pipe(
       map(os => os.add(data)),
-      mergeMap(request => fromEvent(request, 'success')),
-      map(event => event.target.result),
+      mergeMap(request => fromEvent(request, "success")),
+      map(event => event.target.result)
     );
 
     return entry$;
-  }
+  };
 }
 
 function getAll() {
@@ -183,22 +170,63 @@ function getAll() {
   };
 }
 
-const tx$ = db$.pipe(
-  transaction(['users', 'todos']),
-  transactionComplete(() => {
-    console.log('tx complete');
+function get(key) {
+  return function(objectStore$) {
+    const entry$ = objectStore$.pipe(
+      map(os => os.get(key)),
+      mergeMap(request => fromEvent(request, "success")),
+      map(event => event.target.result)
+    );
+    return entry$;
+  };
+}
+
+// example starts here
+
+const db$ = openDB("todoList", 8).pipe(
+  upgrade(db$ => {
+    const todosOS$ = db$.pipe(
+      createObjectStore("todos", { keyPath: "id" }),
+      createIndex("task", "task")
+    );
+
+    const usersOS$ = db$.pipe(
+      createObjectStore("users", { keyPath: "id" }),
+      createIndex("name", "name")
+    );
+
+    return merge(todosOS$, usersOS$);
   })
-)
-
-const getUsers$ = tx$.pipe(
-  objectStore('users'),
-  getAll()
 );
 
-const getTodos$ = tx$.pipe(
-  objectStore('todos'),
-  getAll()
+// open a transaction
+const tx$ = db$.pipe(
+  transaction(["users", "todos"], "readwrite"),
+  transactionComplete(() => {
+    console.log("tx complete");
+  })
 );
 
-merge(getUsers$, getTodos$).subscribe(console.log);
+// open an object store
+const usersObjectStore$ = tx$.pipe(objectStore("users"));
 
+function getUser(i) {
+  return usersObjectStore$.pipe(get(i));
+}
+
+// we'll add a user here
+const addUser$ = usersObjectStore$
+  .pipe(
+    add({
+      name: "carson",
+      id: Math.floor(new Date() / 1000)
+    }),
+    switchMap(getUser)
+  )
+  .subscribe(console.log);
+
+// we'll get all of our users here
+const getUsers$ = usersObjectStore$.pipe(getAll());
+
+// subscribe to the thing
+// merge(getUsers$, addUser$, getUsers$).subscribe(console.log);

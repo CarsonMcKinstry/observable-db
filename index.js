@@ -1,24 +1,25 @@
-import { fromEvent, merge, of, Observable } from "rxjs";
+import { fromEvent, merge, Observable } from "rxjs";
 import {
   filter,
   tap,
   map,
   ignoreElements,
   mergeMap,
-  combineAll
+  shareReplay
 } from "rxjs/operators";
 
 function transaction(storeNames, mode) {
   return function(dbEvent$) {
     const transaction$ = dbEvent$.pipe(
-      map(db => db.transaction(storeNames, mode))
+      map(db => db.transaction(storeNames, mode)),
     );
 
     const transactionComplete$ = transaction$.pipe(
-      mergeMap(transaction => fromEvent(transaction, "complete"))
+      mergeMap(transaction => fromEvent(transaction, "complete")),
+      shareReplay()
     );
 
-    return merge(transaction$, transactionComplete$);
+    return merge(transaction$, transactionComplete$)
   };
 }
 
@@ -31,8 +32,9 @@ function transactionComplete(cb) {
       ),
       tap(event => {
         cb && typeof cb === "function" && cb(event);
-      })
-      // ignoreElements()
+      }),
+      shareReplay(),
+      ignoreElements()
     );
 
     return merge(stream$, transactionCompleteEvent$).pipe(
@@ -68,7 +70,8 @@ function upgrade(upgradeFunction) {
     }
 
     return merge(upgraded$.pipe(ignoreElements()), upgradeDB$).pipe(
-      filter(({ type }) => type !== "upgradeneeded")
+      filter(({ type }) => type !== "upgradeneeded"),
+      shareReplay()
     );
   };
 }
@@ -128,49 +131,74 @@ const db$ = openDB("todoList", 8).pipe(
 
 function objectStore(name) {
   return function(transaction$) {
-    console.log(transaction$);
-    return transaction$;
-    // const objectStore$ = transaction$.pipe(
-    //   filter(event => event.type !== "complete"),
-    //   map(i => {
-    //     if (i instanceof IDBTransaction) {
-    //       return i.objectStore(name);
-    //     }
+    const objectStore$ = transaction$.pipe(
+      filter(event => event.type !== "complete"),
+      map(i => {
+        if (i instanceof IDBTransaction) {
+          return i.objectStore(name);
+        }
 
-    //     return i.target.transaction.objectStore(name);
-    //   })
-    // );
-    // return objectStore$;
+        return i.target.transaction.objectStore(name);
+      })
+    );
+    return objectStore$;
   };
 }
 
-// function index(name) {
-//   return function (objectStore$) {
-//     const index$ = objectStore$.pipe(
-//       map(objectStore => objectStore.index(name))
-//     );
-//     return index$;
-//   };
-// }
+function index(name) {
+  return function (objectStore$) {
+    const index$ = objectStore$.pipe(
+      map(objectStore => objectStore.index(name))
+    );
+    return index$;
+  };
+}
 
-// function getAll() {
-//   return function (objectStore$) {
-//     const entries$ = objectStore$.pipe(
-//       map(os => os.getAll()),
-//       mergeMap(request => fromEvent(request, "success"))
-//       // map(event => event.target.result)
-//     );
+function getAll() {
+  return function (objectStore$) {
+    const entries$ = objectStore$.pipe(
+      map(os => os.getAll()),
+      mergeMap(request => fromEvent(request, "success")),
+      map(event => event.target.result)
+    );
 
-//     return entries$;
-//   };
-// }
+    return entries$;
+  };
+}
 
-const testTransaction = db$
-  .pipe(
-    transaction(["users", "todos"], "readwrite"),
-    transactionComplete(() => {
-      console.log("transaction complete");
-    }),
-    objectStore("users")
-  )
-  .subscribe(console.log);
+// const testTransaction = db$
+//   .pipe(
+//     transaction(["users", "todos"], "readwrite"),
+//     transactionComplete(() => {
+//       console.log("transaction complete");
+//     }),
+//     objectStore("users")
+//   )
+//   .subscribe(console.log);
+
+const tx$ = db$.pipe(
+  transaction(['users', 'todos'], 'readonly'),
+  transactionComplete(() => {
+    console.log('transaction complete');
+  }),
+);
+
+const getUsers$ = tx$.pipe(
+  objectStore('users'),
+  getAll(),
+  tap(users => {
+    console.log('getUsers');
+    console.log(users);
+  })
+);
+
+const getTodos$ = tx$.pipe(
+  objectStore('todos'),
+  getAll(),
+  tap(todos => {
+    console.log('getTodos');
+    console.log(todos);
+  })
+);
+
+merge(getUsers$, getTodos$).subscribe();

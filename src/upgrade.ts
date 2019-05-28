@@ -5,23 +5,26 @@ export type UpgradeFunction = (db$: Observable<IDBDatabase>) => Observable<any>;
 
 export default function upgrade(
   upgradeFunction: UpgradeFunction
-): OperatorFunction<Event, Event | IDBDatabase> {
+): OperatorFunction<Event | IDBDatabase, Event | IDBDatabase> {
   return openDBRequest$ => {
     const upgradeDB$ = openDBRequest$.pipe(
-      filter(({ type }: Event) => type === "upgradeneeded"),
-      map((event: Event) => {
-        return (event.target as IDBOpenDBRequest).result;
-      })
+      filter(i => i instanceof Event), // whyyyyyy?
+      filter((event: Event) => event.type === "upgradeneeded")
     );
 
-    const upgradedDB$ = upgradeFunction(upgradeDB$);
-
-    const db$ = merge(openDBRequest$, upgradedDB$);
-
-    return db$.pipe(
-      filter(({ type }: Event) => type !== "upgradeneeded"),
-      share()
-    );
+    return upgradeDB$;
+    // const upgradeDB$ = openDBRequest$.pipe(
+    //   filter(({ type }: Event) => type === "upgradeneeded"),
+    //   map((event: Event) => {
+    //     return (event.target as IDBOpenDBRequest).result;
+    //   })
+    // );
+    // const upgradedDB$ = upgradeFunction(upgradeDB$);
+    // const db$ = merge(openDBRequest$, upgradedDB$);
+    // return db$.pipe(
+    //   filter(({ type }: Event) => type !== "upgradeneeded"),
+    //   share()
+    // );
   };
 }
 

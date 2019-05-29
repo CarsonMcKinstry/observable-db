@@ -1,1 +1,1 @@
-export { default as generateOSOperator } from "./generateOSOperator";
+export { default as generateOSOperator } from './generateOSOperator';

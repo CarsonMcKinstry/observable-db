@@ -8,6 +8,7 @@
     "rxjs": "^6.5.2"
   },
   "devDependencies": {
+    "prettier": "^1.17.1",
     "typescript": "^3.4.5"
   },
   "scripts": {

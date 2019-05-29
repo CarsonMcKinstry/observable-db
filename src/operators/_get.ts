@@ -15,8 +15,8 @@
 //   };
 // }
 
-import { generateOSOperator } from "../utils";
+import { generateOSOperator } from '../utils';
 
 export default function get(key: IDBValidKey | IDBKeyRange) {
-  return generateOSOperator(objectStore => objectStore.get(key));
+    return generateOSOperator(objectStore => objectStore.get(key));
 }

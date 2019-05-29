@@ -1,6 +1,6 @@
 import * as faker from 'faker';
 import { fromEvent, of } from 'rxjs';
-import { tap, map, mergeMap, pluck } from 'rxjs/operators';
+import { tap, map, mergeMap, concatMap } from 'rxjs/operators';
 
 const dummyData = {
     task: faker.lorem.sentence(2),
@@ -40,6 +40,28 @@ request.onupgradeneeded = db => {
 
 // naive request handler with rxjs
 
+function mapEventToDBInterface(event) {
+    return {
+        transaction$: of(event.target.transaction),
+        objectStore$: of(event.target.source),
+        result: event.target.result,
+    };
+}
+
+function createObjectStoreOperator(objectStoreMapping) {
+    return db$ => {
+        return db$.pipe(
+            mergeMap(({ objectStore$ }) => objectStore$),
+            map(objectStoreMapping),
+            map(request => fromEvent(request, 'success')),
+            map(mapEventToDBInterface),
+        );
+    };
+}
+
+const add = data =>
+    createObjectStoreOperator(objectStore => objectStore.add(data));
+
 fromEvent(request, 'success')
     .pipe(
         // map(openEvent => openEvent.target.result),
@@ -54,42 +76,10 @@ fromEvent(request, 'success')
             };
         }),
         // add
-        mergeMap(({ objectStore$ }) => {
-            return objectStore$.pipe(
-                map(objectStore => objectStore.add(dummyData)),
-                mergeMap(request => fromEvent(request, 'success')),
-                map(event => ({
-                    transaction$: of(event.target.transaction),
-                    objectStore$: of(event.target.source),
-                    result: event.target.result,
-                })),
-            );
-        }),
-        tap(({ result }) => console.log(result)),
-        // get
-        mergeMap(({ result, objectStore$ }) => {
-            return objectStore$.pipe(
-                map(objectStore => objectStore.get(result)),
-                mergeMap(request => fromEvent(request, 'success')),
-                map(event => ({
-                    transaction$: of(event.target.transaction),
-                    objectStore$: of(event.target.source),
-                    result: event.target.result,
-                })),
-            );
-        }),
-        // get, based on what is coming from add
-        // mergeMap(eventOrObjectStore => {
-        // const {
-        //     target: { result, source },
-        // } = event;
-        // const request = source.get(result);
-
-        // return fromEvent(request, 'success');
-        // }),
-        // mergeMap(objectStore => {
-        //     const request = objectStore.getAll();
-        //     return fromEvent(request, 'success').pipe(
+        // mergeMap(({ objectStore$ }) => {
+        //     return objectStore$.pipe(
+        //         map(objectStore => objectStore.add(dummyData)),
+        //         mergeMap(request => fromEvent(request, 'success')),
         //         map(event => ({
         //             transaction$: of(event.target.transaction),
         //             objectStore$: of(event.target.source),
@@ -97,9 +87,21 @@ fromEvent(request, 'success')
         //         })),
         //     );
         // }),
-        // pluck('target', 'result'),
-        // pluck('task'),
-        tap(({ result }) => console.log(result)),
+        add(dummyData),
+        // tap(({ result }) => console.log(result)),
+        // // get
+        // mergeMap(({ result, objectStore$ }) => {
+        //     return objectStore$.pipe(
+        //         map(objectStore => objectStore.get(result)),
+        //         mergeMap(request => fromEvent(request, 'success')),
+        //         map(event => ({
+        //             transaction$: of(event.target.transaction),
+        //             objectStore$: of(event.target.source),
+        //             result: event.target.result,
+        //         })),
+        //     );
+        // }),
+        // tap(({ result }) => console.log(result)),
     )
     .subscribe();
 

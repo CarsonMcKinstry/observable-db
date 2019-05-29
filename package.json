@@ -8,6 +8,7 @@
     "rxjs": "^6.5.2"
   },
   "devDependencies": {
+    "faker": "^4.1.0",
     "prettier": "^1.17.1",
     "typescript": "^3.4.5"
   },

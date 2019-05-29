@@ -5,7 +5,7 @@ type ObjectStoreMapping = (
   objectStore: IDBObjectStore | IDBIndex
 ) => IDBRequest;
 
-export default function createObjectStoreOperator(
+export default function generateOSOperator(
   mapping: ObjectStoreMapping
 ): OperatorFunction<IDBObjectStore | IDBIndex, any> {
   return objectStore$ => {

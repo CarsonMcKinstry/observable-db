@@ -1,3 +1,1 @@
-export {
-  default as createObjectStoreOperator
-} from "./createObjectStoreOperator";
+export { default as generateOSOperator } from "./generateOSOperator";

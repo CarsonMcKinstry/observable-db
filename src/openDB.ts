@@ -8,12 +8,10 @@ function mapEventToDatabase(event: Event): IDBDatabase {
 export default function openDB(
   name: string,
   version: number
-): Observable<IDBDatabase | Event> {
+): Observable<Event> {
   const request = window.indexedDB.open(name, version);
 
-  const success$: Observable<IDBDatabase> = fromEvent(request, "success").pipe(
-    map(mapEventToDatabase)
-  );
+  const success$: Observable<Event> = fromEvent(request, "success");
 
   const upgrade$: Observable<Event> = fromEvent(request, "upgradeneeded");
 

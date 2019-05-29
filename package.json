@@ -9,5 +9,8 @@
   },
   "devDependencies": {
     "typescript": "^3.4.5"
+  },
+  "scripts": {
+    "dev": "parcel index.html"
   }
 }

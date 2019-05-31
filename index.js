@@ -1,47 +1,18 @@
 import * as faker from 'faker';
-import { fromEvent, of, Observable } from 'rxjs';
-import { tap, map, mergeMap, concatMap, pluck } from 'rxjs/operators';
+import { merge, fromEvent, of, Observable, concat } from 'rxjs';
+import {
+    tap,
+    map,
+    mergeMap,
+    concatMap,
+    pluck,
+    ignoreElements,
+} from 'rxjs/operators';
 
 const dummyData = {
     task: faker.lorem.sentence(2),
     id: faker.random.uuid(),
 };
-
-// const request = indexedDB.open('todos', 2);
-
-// request.onupgradeneeded = db => {
-//     const os = db.createObjectStore('todos', { keyPath: 'id' });
-//     os.createIndex('task', 'task');
-// };
-
-// plain request handler without rxjs
-
-// request.addEventListener('success', openEvent => {
-//     const db = openEvent.target.result;
-
-//     const tx = db.transaction('todos', 'readwrite');
-
-//     const objectStore = tx.objectStore('todos');
-
-//     const addRequest = objectStore.add(dummyData);
-
-//     addRequest.addEventListener('success', addEvent => {
-//         const {
-//             target: { source: objectStore, result: value },
-//         } = addEvent;
-
-//         const putRequest = objectStore.put({
-//             task: 'other dummy data',
-//             id: value,
-//         });
-
-//         // const getRequest = objectStore.get(value);
-
-//         putRequest.addEventListener('success', getEvent => {
-//             console.log(getEvent.target.result);
-//         });
-//     });
-// });
 
 // naive request handler with rxjs
 
@@ -82,13 +53,28 @@ const get = key =>
 const put = (data, key) =>
     createObjectStoreOperator(objectStore => objectStore.put(data, key));
 
-function openDB(name, version) {
+const getAll = () => createObjectStoreOperator(os => os.getAll());
+
+const defaultStartupHandlers = {
+    upgrade: () => of(null),
+};
+
+function openDB(name, version, { upgrade } = defaultStartupHandlers) {
     const request = indexedDB.open(name, version);
 
-    request.onupgradeneeded = db => {
-        const os = db.createObjectStore('todos', { keyPath: 'id' });
-        os.createIndex('task', 'task');
-    };
+    const upgrade$ = fromEvent(request, 'upgradeneeded').pipe(
+        map(event => {
+            const db = event.target.result;
+            return { result: db };
+        }),
+        mergeMap(db => upgrade(db)),
+        ignoreElements(),
+    );
+
+    // request.onupgradeneeded = db => {
+    //     const os = db.createObjectStore('todos', { keyPath: 'id' });
+    //     os.createIndex('task', 'task');
+    // };
     // const db$ = Observable.create(observer => {
     //     const success = event => {
     //         const dbInterface = mapEventToDBInterface(event);
@@ -110,23 +96,38 @@ function openDB(name, version) {
     // });
 
     // return db$;
-    return fromEvent(request, 'success').pipe(
+    const db$ = fromEvent(request, 'success').pipe(
         map(event => {
             const db = event.target.result;
-            const tx = db.transaction('todos', 'readwrite');
-            const objectStore = tx.objectStore('todos');
+            // const tx = db.transaction('todos', 'readwrite');
+            // const objectStore = tx.objectStore('todos');
             return {
-                objectStore$: of(objectStore),
-                transaction$: of(tx),
-                result: db,
+                // objectStore$: of(objectStore),
+                // transaction$: of(tx),
+                result: event.target.result,
             };
         }),
     );
+
+    return merge(upgrade$, db$);
 }
 
-openDB('todos', 2)
+openDB('todos', 2, {
+    upgrade: db => {
+        return of(db).pipe(
+            map(({ result }) =>
+                result.createObjectStore('todos', { keyPath: 'id' }),
+            ),
+            map(os => {
+                os.createIndex('task', 'task');
+                return os;
+            }),
+        );
+    },
+})
     .pipe(
-        add(dummyData),
+        getAll(),
+        // add(dummyData),
         // mergeMap(db =>
         //     of(db).pipe(
         //         put({

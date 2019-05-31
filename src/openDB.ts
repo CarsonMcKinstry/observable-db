@@ -1,16 +1,7 @@
 import { Observable, of, fromEvent, merge } from 'rxjs';
 import { map, mergeMap, ignoreElements } from 'rxjs/operators';
 
-import { DBInterface } from './types';
-
-interface OpenDBCallbacks {
-    upgrade: (
-        dbInterface: Pick<
-            DBInterface<IDBDatabase>,
-            Exclude<keyof DBInterface, 'objectStore$' | 'transaction$'>
-        >,
-    ) => Observable<any>;
-}
+import { OpenDBCallbacks } from './types';
 
 function defaultUpgrade() {
     return of(null);
@@ -30,7 +21,7 @@ export default function openDB(
 
     const upgrade$ = fromEvent(request, 'upgradeneeded').pipe(
         mapToDBInterface(),
-        mergeMap(db => upgrade(db)),
+        upgrade,
         ignoreElements(),
     );
 

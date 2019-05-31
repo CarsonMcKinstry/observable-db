@@ -13,7 +13,7 @@ const upgrade: UpgradeFunction = db$ => {
     );
 };
 
-const todosDB$ = openDB('todos', 5, {
+const todosDB$ = openDB('todos', 1, {
     upgrade,
 });
 

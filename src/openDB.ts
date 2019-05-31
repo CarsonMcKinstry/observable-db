@@ -1,4 +1,4 @@
-import { Observable, of, fromEvent, merge } from 'rxjs';
+import { Subject, Observable, of, fromEvent, merge, Subscriber } from 'rxjs';
 import { map, mergeMap, ignoreElements } from 'rxjs/operators';
 
 import { OpenDBCallbacks } from './types';
@@ -17,15 +17,24 @@ export default function openDB(
     version: number,
     { upgrade = defaultUpgrade }: OpenDBCallbacks,
 ) {
-    const request = indexedDB.open(name, version);
+    const req$ = Observable.create((observer: Subscriber<any>) => {
+        const request = indexedDB.open(name, version);
+        observer.next(request);
+        observer.complete();
+    });
+    // const request = indexedDB.open(name, version);
 
-    const upgrade$ = fromEvent(request, 'upgradeneeded').pipe(
+    const upgrade$ = req$.pipe(
+        mergeMap((request: IDBRequest) => fromEvent(request, 'upgradeneeded')),
         mapToDBInterface(),
         upgrade,
         ignoreElements(),
     );
 
-    const db$ = fromEvent(request, 'success').pipe(mapToDBInterface());
+    const db$ = req$.pipe(
+        mergeMap((request: IDBRequest) => fromEvent(request, 'success')),
+        mapToDBInterface(),
+    );
 
     return merge(upgrade$, db$);
 }

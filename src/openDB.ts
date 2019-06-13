@@ -1,4 +1,4 @@
-import { Subject, Observable, of, fromEvent, merge, Subscriber } from 'rxjs';
+import { Observable, of, fromEvent, merge, Subscriber } from 'rxjs';
 import { map, mergeMap, ignoreElements } from 'rxjs/operators';
 
 import { OpenDBCallbacks } from './types';
